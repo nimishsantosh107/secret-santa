@@ -1,0 +1,16 @@
+---
+description: Do not start the dev server or run a build
+alwaysApply: true
+---
+
+# Do not start the server or build
+
+Never run commands that start the app or produce a build. The user starts those.
+
+Do not run:
+
+- `npm run dev`, `next dev`, or any other dev-server start
+- `npm run build`, `next build`, `npm start`, or `next start`
+- A restart of a server you started earlier
+
+Editing files is fine. Checking types or lint is fine when it does not start a server or build.
