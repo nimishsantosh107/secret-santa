@@ -2,7 +2,7 @@ import { cookies } from "next/headers";
 import type { NextRequest } from "next/server";
 import { ADMIN_COOKIE, authed, passwordOk } from "@/lib/auth";
 import { readDb, toPublic, updateDb } from "@/lib/db";
-import { sendOne } from "@/lib/mail";
+import { sendOne, sendTest } from "@/lib/mail";
 import { cleanExclusions, derange } from "@/lib/shuffle";
 
 export const maxDuration = 60;
@@ -21,6 +21,7 @@ type Body = {
   exclusions?: { a?: string; b?: string }[];
   emailSubject?: string;
   emailHtml?: string;
+  to?: string;
 };
 
 type Result = { error?: string; processed?: boolean };
@@ -61,6 +62,25 @@ export async function POST(request: NextRequest) {
 
   if (!authed(request.cookies.get(ADMIN_COOKIE)?.value)) {
     return json({ error: "Nope." }, 401);
+  }
+
+  if (body.action === "test") {
+    const to = String(body.to ?? "").trim();
+    if (to.length > 120 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) {
+      return json({ error: "Need a real email address." }, 400);
+    }
+    const subject = String(body.emailSubject ?? "").slice(0, 200);
+    const html = String(body.emailHtml ?? "").slice(0, 20000);
+    if (!subject.trim() || !html.trim()) {
+      return json({ error: "Subject and HTML are required." }, 400);
+    }
+    try {
+      await sendTest(to, subject, html);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Failed.";
+      return json({ error: message.slice(0, 300) }, 500);
+    }
+    return json({ ok: true, state: toPublic(await readDb()) });
   }
 
   try {

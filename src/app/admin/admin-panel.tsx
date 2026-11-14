@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { applyHtml, applyText, SAMPLE_VARS } from "@/lib/template";
 import type { PublicState } from "@/lib/types";
 
 type Draft = {
@@ -35,6 +36,7 @@ export function AdminPanel() {
   const [state, setState] = useState<PublicState | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [password, setPassword] = useState("");
+  const [testTo, setTestTo] = useState("");
   const [left, setLeft] = useState("");
   const [right, setRight] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
@@ -346,34 +348,78 @@ export function AdminPanel() {
 
       <section className="panel">
         <h2>Email template</h2>
-        <p className="hint">
-          Tokens: {"{{santa_name}} {{child_name}} {{child_email}} {{child_phone}} {{child_address}} {{child_pref}}"}
-        </p>
-        <label className="field">
-          <span>Subject</span>
-          <input
-            value={draft.emailSubject}
-            maxLength={200}
-            onChange={(event) => setDraft({ ...draft, emailSubject: event.target.value })}
-          />
-        </label>
-        <label className="field">
-          <span>HTML</span>
-          <textarea
-            value={draft.emailHtml}
-            rows={12}
-            onChange={(event) => setDraft({ ...draft, emailHtml: event.target.value })}
-          />
-        </label>
-        <div className="row">
-          <button
-            className="btn"
-            type="button"
-            disabled={locked}
-            onClick={() => void saveDraft()}
-          >
-            Save template
-          </button>
+        <div className="template-split">
+          <div>
+            <p className="hint">
+              Tokens: {"{{santa_name}} {{child_name}} {{child_email}} {{child_phone}} {{child_address}} {{child_pref}}"}
+            </p>
+            <label className="field">
+              <span>Subject</span>
+              <input
+                value={draft.emailSubject}
+                maxLength={200}
+                onChange={(event) => setDraft({ ...draft, emailSubject: event.target.value })}
+              />
+            </label>
+            <label className="field">
+              <span>HTML</span>
+              <textarea
+                value={draft.emailHtml}
+                rows={12}
+                onChange={(event) => setDraft({ ...draft, emailHtml: event.target.value })}
+              />
+            </label>
+            <div className="row">
+              <button
+                className="btn"
+                type="button"
+                disabled={locked}
+                onClick={() => void saveDraft()}
+              >
+                Save template
+              </button>
+            </div>
+            <label className="field stack">
+              <span>Test inbox</span>
+              <input
+                type="email"
+                value={testTo}
+                maxLength={120}
+                placeholder="you@example.com"
+                onChange={(event) => setTestTo(event.target.value)}
+              />
+            </label>
+            <button
+              className="btn ghost"
+              type="button"
+              disabled={locked}
+              onClick={() => {
+                const to = testTo.trim();
+                if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) {
+                  setBad(true);
+                  setMsg("Type the inbox the test should land in.");
+                  return;
+                }
+                void act("test", async () => {
+                  await post({ action: "test", to, ...draft });
+                  setMsg("Test sent. Same template as the preview, filled in as John.");
+                });
+              }}
+            >
+              Send test
+            </button>
+          </div>
+          <div>
+            <p className="hint">Preview, filled in as John buying for Jane.</p>
+            <div className="preview-box">
+              <p className="preview-subject">{applyText(draft.emailSubject, SAMPLE_VARS)}</p>
+              <iframe
+                title="Email preview"
+                sandbox=""
+                srcDoc={applyHtml(draft.emailHtml, SAMPLE_VARS)}
+              />
+            </div>
+          </div>
         </div>
       </section>
     </main>

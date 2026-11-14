@@ -67,11 +67,12 @@ a {
 
 .hero {
   min-height: 100vh;
+  min-height: 100svh;
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
   gap: 0.8rem;
-  padding: 1.5rem 1.25rem 3.5rem;
+  padding: 1.5rem 1.25rem calc(3.5rem + env(safe-area-inset-bottom));
   background: linear-gradient(to top, rgba(7, 20, 15, 0.92), rgba(7, 20, 15, 0.08) 52%, rgba(7, 20, 15, 0.28));
 }
 
@@ -152,7 +153,34 @@ a {
 }
 
 .wrap.wide {
-  width: min(100% - 2rem, 52rem);
+  width: min(100% - 2rem, 72rem);
+}
+
+.template-split {
+  display: grid;
+  gap: 1rem;
+}
+
+.preview-box {
+  background: #fff;
+  border: 2px solid rgba(240, 193, 74, 0.5);
+}
+
+.preview-subject {
+  margin: 0;
+  padding: 0.55rem 0.7rem;
+  color: #140b08;
+  background: #f7f3ea;
+  font-size: 0.95rem;
+  border-bottom: 2px solid rgba(240, 193, 74, 0.5);
+}
+
+.preview-box iframe {
+  display: block;
+  width: 100%;
+  height: 32rem;
+  border: 0;
+  background: #fff;
 }
 
 .panel {
@@ -244,9 +272,20 @@ textarea {
   gap: 0.5rem;
 }
 
+@media (min-width: 860px) {
+  .template-split {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: start;
+  }
+}
+
 @media (max-width: 640px) {
   .pair-pick {
     grid-template-columns: 1fr;
+  }
+
+  .preview-box iframe {
+    height: 24rem;
   }
 
   .riders li,

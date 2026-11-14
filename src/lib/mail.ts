@@ -1,5 +1,6 @@
 import nodemailer from "nodemailer";
 import type { DB } from "./db";
+import { applyHtml, applyText, SAMPLE_VARS } from "./template";
 
 const TEXT = [
   "{{santa_name}}, you are Secret Santa for {{child_name}}.",
@@ -8,28 +9,6 @@ const TEXT = [
   "Address: {{child_address}}",
   "Wish: {{child_pref}}",
 ].join("\n");
-
-export function escapeHtml(value: string) {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
-export function applyText(template: string, vars: Record<string, string>) {
-  return template.replace(/\{\{([a-z_]+)\}\}/g, (_m, key: string) =>
-    (vars[key] ?? "").replace(/[\r\n]+/g, " "),
-  );
-}
-
-export function applyHtml(template: string, vars: Record<string, string>) {
-  const safe: Record<string, string> = {};
-  for (const [key, value] of Object.entries(vars)) {
-    safe[key] = escapeHtml(value).replace(/\n/g, "<br/>");
-  }
-  return template.replace(/\{\{([a-z_]+)\}\}/g, (_m, key: string) => safe[key] ?? "");
-}
 
 function mailer() {
   const user = process.env.GMAIL_USER ?? "";
@@ -77,4 +56,16 @@ export async function sendOne(db: DB): Promise<boolean> {
   // double-send on the next click. Upgrade: write a sending lock first.
   db.status[santaId] = { email: "sent" };
   return true;
+}
+
+/** Sends the real template, filled as John buying for Jane. Writes nothing. */
+export async function sendTest(to: string, subjectTemplate: string, htmlTemplate: string) {
+  const { user, transporter } = mailer();
+  await transporter.sendMail({
+    from: `"Secret Santa" <${user}>`,
+    to,
+    subject: applyText(subjectTemplate, SAMPLE_VARS).replace(/[\r\n]+/g, " ").slice(0, 180),
+    html: applyHtml(htmlTemplate, SAMPLE_VARS),
+    text: applyText(TEXT, SAMPLE_VARS),
+  });
 }
