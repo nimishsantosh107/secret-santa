@@ -51,7 +51,13 @@ function Mask() {
   return <span className="mask" aria-hidden="true" />;
 }
 
-export function AdminPanel() {
+export function AdminPanel({
+  api = "/api/admin",
+  testing = false,
+}: {
+  api?: string;
+  testing?: boolean;
+}) {
   const [phase, setPhase] = useState<"loading" | "login" | "ready">("loading");
   const [state, setState] = useState<PublicState | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -70,7 +76,7 @@ export function AdminPanel() {
   const [form, setForm] = useState<PersonForm>(emptyForm);
 
   const refresh = useCallback(async () => {
-    const res = await fetch("/api/admin", { cache: "no-store" });
+    const res = await fetch(api, { cache: "no-store" });
     if (res.status === 401) {
       setPhase("login");
       setState(null);
@@ -82,7 +88,7 @@ export function AdminPanel() {
     setState(next);
     setDraft((current) => current ?? draftFrom(next));
     setPhase("ready");
-  }, []);
+  }, [api]);
 
   useEffect(() => {
     let dead = false;
@@ -98,7 +104,7 @@ export function AdminPanel() {
   }, [refresh]);
 
   async function post(body: Record<string, unknown>) {
-    const res = await fetch("/api/admin", {
+    const res = await fetch(api, {
       method: "POST",
       headers: { "content-type": "application/json" },
       cache: "no-store",
@@ -127,7 +133,7 @@ export function AdminPanel() {
   async function onLogin(event: FormEvent) {
     event.preventDefault();
     await act("login", async () => {
-      const res = await fetch("/api/admin", {
+      const res = await fetch(api, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ action: "login", password }),
@@ -180,8 +186,9 @@ export function AdminPanel() {
       <main className="wrap">
         <p className="kicker">
           <Link href="/">Home</Link>
+          {testing ? <> · <Link href="/admin">Host</Link></> : <> · <Link href="/admin-test">Practice</Link></>}
         </p>
-        <h1>Host</h1>
+        <h1>{testing ? "Host test" : "Host"}</h1>
         <form className="panel" onSubmit={onLogin}>
           <label className="field">
             <span>Password</span>
@@ -232,8 +239,14 @@ export function AdminPanel() {
     <main className="wrap wide">
       <p className="kicker">
         <Link href="/">Home</Link>
+        {testing ? <> · <Link href="/admin">Host</Link></> : <> · <Link href="/admin-test">Practice</Link></>}
       </p>
-      <h1>Host</h1>
+      <h1>{testing ? "Host test" : "Host"}</h1>
+      {testing ? (
+        <p className="hint">
+          Practice list. Every email is {`nimishsantosh107@gmail.com`}. Alex and Blair start blocked.
+        </p>
+      ) : null}
       <p className="hint">
         Open a name for their form. The wish and their child stay blurred until you show them.
       </p>
@@ -577,6 +590,7 @@ export function AdminPanel() {
       <section className="panel">
         <h2>Shuffle</h2>
         <p className="hint">This locks submissions. Assignments stay blurred until you show them.</p>
+        <div className="row">
         <button
           className="btn"
           type="button"
@@ -590,6 +604,31 @@ export function AdminPanel() {
         >
           Run shuffle
         </button>
+        {testing ? (
+          <button
+            className="btn ghost"
+            type="button"
+            disabled={locked}
+            onClick={() => {
+              if (!window.confirm("Reset the practice list? The draw clears. Alex and Blair stay blocked.")) {
+                return;
+              }
+              void act("reset", async () => {
+                const data = await post({ action: "reset" });
+                if (data.state) setDraft(draftFrom(data.state));
+                setOpenId(null);
+                setEditing(false);
+                setShowPref(false);
+                setShowChild(false);
+                setOpenPair(null);
+                setMsg("Practice list reset.");
+              });
+            }}
+          >
+            Reset practice list
+          </button>
+        ) : null}
+        </div>
       </section>
 
       <section className="panel">

@@ -1,10 +1,11 @@
 import { cookies } from "next/headers";
 import type { NextRequest } from "next/server";
 import { ADMIN_COOKIE, authed, passwordOk } from "@/lib/auth";
-import { readDb, toPublic, updateDb } from "@/lib/db";
+import { DEFAULT_HTML, DEFAULT_SUBJECT, paths, readDb, readDbSync, toPublic, updateDb } from "@/lib/db";
 import { sendOne, sendTest } from "@/lib/mail";
 import { readPerson } from "@/lib/person";
 import { cleanExclusions, derange } from "@/lib/shuffle";
+import { applyTestSeed } from "@/lib/test-roster";
 
 export const maxDuration = 60;
 
@@ -33,11 +34,33 @@ type Body = {
 
 type Result = { error?: string; processed?: boolean };
 
+function testMode(request: NextRequest) {
+  return request.nextUrl.searchParams.get("test") === "1";
+}
+
+function dbFile(test: boolean) {
+  return test ? paths.test : paths.db;
+}
+
+const testTemplates = { emailSubject: DEFAULT_SUBJECT, emailHtml: DEFAULT_HTML };
+
+async function ensureTest(file: string) {
+  const current = readDbSync(file);
+  if (current.participants.length > 0 || current.mapping) return;
+  await updateDb((db) => {
+    if (db.participants.length > 0 || db.mapping) return;
+    applyTestSeed(db, testTemplates);
+  }, file);
+}
+
 export async function GET(request: NextRequest) {
   if (!authed(request.cookies.get(ADMIN_COOKIE)?.value)) {
     return json({ error: "Nope." }, 401);
   }
-  return json({ state: toPublic(await readDb()) });
+  const test = testMode(request);
+  const file = dbFile(test);
+  if (test) await ensureTest(file);
+  return json({ state: toPublic(await readDb(file)) });
 }
 
 export async function POST(request: NextRequest) {
@@ -71,6 +94,18 @@ export async function POST(request: NextRequest) {
     return json({ error: "Nope." }, 401);
   }
 
+  const test = testMode(request);
+  const file = dbFile(test);
+  if (test && body.action !== "reset") await ensureTest(file);
+
+  if (body.action === "reset") {
+    if (!test) return json({ error: "Unknown action." }, 400);
+    await updateDb((db) => {
+      applyTestSeed(db, testTemplates);
+    }, file);
+    return json({ ok: true, state: toPublic(await readDb(file)) });
+  }
+
   if (body.action === "test") {
     const to = String(body.to ?? "").trim();
     if (to.length > 120 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) {
@@ -87,7 +122,7 @@ export async function POST(request: NextRequest) {
       const message = e instanceof Error ? e.message : "Failed.";
       return json({ error: message.slice(0, 300) }, 500);
     }
-    return json({ ok: true, state: toPublic(await readDb()) });
+    return json({ ok: true, state: toPublic(await readDb(file)) });
   }
 
   try {
@@ -141,8 +176,10 @@ export async function POST(request: NextRequest) {
         if ("error" in fields) return fields;
         const person = db.participants.find((p) => p.id === String(body.id ?? ""));
         if (!person) return { error: "That person is not on the list." };
-        const taken = db.participants.some((p) => p.email === fields.email && p.id !== person.id);
-        if (taken) return { error: "That email is already on the list." };
+        if (!test) {
+          const taken = db.participants.some((p) => p.email === fields.email && p.id !== person.id);
+          if (taken) return { error: "That email is already on the list." };
+        }
         person.name = fields.name;
         person.email = fields.email;
         person.phone = fields.phone;
@@ -159,12 +196,12 @@ export async function POST(request: NextRequest) {
       db.emailSubject = subject;
       db.emailHtml = html;
       return {};
-    });
+    }, file);
 
     if (result.error) return json({ error: result.error }, 400);
     return json({
       ok: true,
-      state: toPublic(await readDb()),
+      state: toPublic(await readDb(file)),
       processed: Boolean(result.processed),
     });
   } catch (e) {

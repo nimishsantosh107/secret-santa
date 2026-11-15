@@ -32,6 +32,7 @@ const root = path.join(process.cwd(), "data");
 
 export const paths = {
   db: path.join(root, "db.json"),
+  test: path.join(root, "test.json"),
 };
 
 export const DEFAULT_SUBJECT = "{{santa_name}}, you are someone's Secret Santa";
@@ -67,16 +68,16 @@ function blank(): DB {
   };
 }
 
-export function readDbSync(): DB {
-  if (!fs.existsSync(paths.db)) return blank();
+export function readDbSync(file = paths.db): DB {
+  if (!fs.existsSync(file)) return blank();
   let parsed: Partial<DB>;
   try {
-    parsed = JSON.parse(fs.readFileSync(paths.db, "utf8")) as Partial<DB>;
+    parsed = JSON.parse(fs.readFileSync(file, "utf8")) as Partial<DB>;
   } catch {
-    throw new Error("data/db.json is corrupt. Fix it or delete it.");
+    throw new Error(`${path.basename(file)} is corrupt. Fix it or delete it.`);
   }
   if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.participants)) {
-    throw new Error("data/db.json is corrupt. Fix it or delete it.");
+    throw new Error(`${path.basename(file)} is corrupt. Fix it or delete it.`);
   }
   const base = blank();
   const rawStatus =
@@ -107,38 +108,42 @@ export function readDbSync(): DB {
 }
 
 /** Reads after the request arrives, so the file is not frozen at build time. */
-export async function readDb(): Promise<DB> {
+export async function readDb(file = paths.db): Promise<DB> {
   await connection();
-  return readDbSync();
+  return readDbSync(file);
 }
 
-function writeDb(db: DB) {
-  fs.mkdirSync(path.dirname(paths.db), { recursive: true });
-  const tmp = `${paths.db}.tmp`;
+function writeDb(db: DB, file = paths.db) {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const tmp = `${file}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify(db, null, 2));
   // Windows rename will not replace an existing file.
   try {
-    fs.unlinkSync(paths.db);
+    fs.unlinkSync(file);
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
   }
-  fs.renameSync(tmp, paths.db);
+  fs.renameSync(tmp, file);
 }
 
-// ponytail: one in-process queue, sync JSON file. Two overlapping writes cannot
-// clobber each other in this process. Ceiling: one Node process. Upgrade: SQLite.
-let queue: Promise<unknown> = Promise.resolve();
+// ponytail: one in-process queue per file. Two overlapping writes cannot
+// clobber that file in this process. Ceiling: one Node process. Upgrade: SQLite.
+const queues = new Map<string, Promise<unknown>>();
 
-export function updateDb<T>(fn: (db: DB) => Promise<T> | T): Promise<T> {
-  const job = queue.then(async () => {
-    const db = readDbSync();
+export function updateDb<T>(fn: (db: DB) => Promise<T> | T, file = paths.db): Promise<T> {
+  const prev = queues.get(file) ?? Promise.resolve();
+  const job = prev.then(async () => {
+    const db = readDbSync(file);
     const result = await fn(db);
-    writeDb(db);
+    writeDb(db, file);
     return result;
   });
-  queue = job.then(
-    () => undefined,
-    () => undefined,
+  queues.set(
+    file,
+    job.then(
+      () => undefined,
+      () => undefined,
+    ),
   );
   return job;
 }
