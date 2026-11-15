@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { applyHtml, applyText, SAMPLE_VARS } from "@/lib/template";
 import type { PublicState } from "@/lib/types";
 
@@ -14,6 +14,7 @@ type ApiData = {
   error?: string;
   state?: PublicState;
   processed?: boolean;
+  backup?: unknown;
 };
 
 function draftFrom(state: PublicState): Draft {
@@ -74,6 +75,8 @@ export function AdminPanel({
   const [showChild, setShowChild] = useState(false);
   const [openPair, setOpenPair] = useState<string | null>(null);
   const [form, setForm] = useState<PersonForm>(emptyForm);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const drawRef = useRef<HTMLDetailsElement>(null);
 
   const refresh = useCallback(async () => {
     const res = await fetch(api, { cache: "no-store" });
@@ -213,7 +216,8 @@ export function AdminPanel({
   const tally = counts(state);
   const locked = busy !== null;
   const riders = [...state.participants].sort((a, b) => a.name.localeCompare(b.name));
-  const nameOf = (id: string) => riders.find((rider) => rider.id === id)?.name ?? "unknown";
+  const personOf = (id: string) => riders.find((rider) => rider.id === id);
+  const nameOf = (id: string) => personOf(id)?.name ?? "unknown";
   const open = riders.find((rider) => rider.id === openId) ?? null;
   const childId = open && state.mapping ? (state.mapping[open.id] ?? null) : null;
   const childName = childId ? nameOf(childId) : null;
@@ -223,6 +227,7 @@ export function AdminPanel({
           santaId,
           santa: nameOf(santaId),
           child: nameOf(drawnId),
+          wish: personOf(drawnId)?.preference ?? "",
         }))
         .sort((a, b) => a.santa.localeCompare(b.santa))
     : [];
@@ -232,6 +237,64 @@ export function AdminPanel({
       const data = await post({ action: "templates", ...draft });
       if (data.state) setDraft(draftFrom(data.state));
       setMsg("Template saved.");
+    });
+  }
+
+  async function downloadBackup() {
+    await act("backup", async () => {
+      const data = await post({ action: "export" });
+      if (data.backup == null) throw new Error("Backup was empty.");
+      const blob = new Blob([`${JSON.stringify(data.backup, null, 2)}\n`], {
+        type: "application/json",
+      });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      const day = new Date().toISOString().slice(0, 10);
+      link.href = url;
+      link.download = `${testing ? "secret-santa-practice" : "secret-santa"}-${day}.json`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setMsg("Backup downloaded.");
+    });
+  }
+
+  async function onRestore(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (file.size > 1_000_000) {
+      setBad(true);
+      setMsg("Backup is too large.");
+      return;
+    }
+    let backup: unknown;
+    try {
+      backup = JSON.parse(await file.text());
+    } catch {
+      setBad(true);
+      setMsg("That file is not JSON.");
+      return;
+    }
+    if (
+      !window.confirm(
+        "Replace everything with this backup? People, the draw, and the email template are overwritten.",
+      )
+    ) {
+      return;
+    }
+    await act("import", async () => {
+      const data = await post({ action: "import", backup });
+      if (data.state) setDraft(draftFrom(data.state));
+      setOpenId(null);
+      setEditing(false);
+      setShowPref(false);
+      setShowChild(false);
+      setOpenPair(null);
+      setLeft("");
+      setRight("");
+      setMsg("Backup restored.");
     });
   }
 
@@ -547,59 +610,25 @@ export function AdminPanel({
         </ul>
       </section>
 
-      <details
-        className="panel draw"
-        onToggle={(event) => {
-          if (!event.currentTarget.open) setOpenPair(null);
-        }}
-      >
-        <summary>Assignments</summary>
-        {state.mapped ? (
-          <>
-            <p className="hint">Show one row at a time.</p>
-            <ul className="pairs">
-              {pairs.map((pair) => {
-                const shown = openPair === pair.santaId;
-                return (
-                  <li key={pair.santaId}>
-                    <span className="who">
-                      <span className="label">Santa</span>
-                      {shown ? <b>{pair.santa}</b> : <Mask />}
-                    </span>
-                    <span className="who">
-                      <span className="label">Child</span>
-                      {shown ? <b>{pair.child}</b> : <Mask />}
-                    </span>
-                    <button
-                      type="button"
-                      className="text-btn"
-                      onClick={() => setOpenPair(shown ? null : pair.santaId)}
-                    >
-                      {shown ? "Blur" : "Show"}
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          </>
-        ) : (
-          <p className="hint">The draw has not run.</p>
-        )}
-      </details>
-
       <section className="panel">
         <h2>Shuffle</h2>
-        <p className="hint">This locks submissions. Assignments stay blurred until you show them.</p>
+        <p className="hint">This locks submissions. You can run it again. Each run replaces the draw.</p>
         <div className="row">
         <button
           className="btn"
           type="button"
-          disabled={locked || state.mapped || tally.total < 2}
+          disabled={locked || tally.total < 2}
           onClick={() => {
-            if (!window.confirm("Run the shuffle? Submissions lock. Assignments stay blurred until you show them.")) {
+            if (!window.confirm("Run the shuffle? Submissions lock. This replaces the current assignments.")) {
               return;
             }
-            void act("shuffle", () => post({ action: "shuffle" }));
+            void act("shuffle", async () => {
+              await post({ action: "shuffle" });
+              setOpenPair(null);
+              window.setTimeout(() => {
+                if (drawRef.current) drawRef.current.open = true;
+              }, 0);
+            });
           }}
         >
           Run shuffle
@@ -629,6 +658,50 @@ export function AdminPanel({
           </button>
         ) : null}
         </div>
+        <details
+          ref={drawRef}
+          className="draw under"
+          onToggle={(event) => {
+            if (!event.currentTarget.open) setOpenPair(null);
+          }}
+        >
+          <summary>Assignments</summary>
+          {state.mapped ? (
+            <>
+              <p className="hint">Santa names stay visible. Show one row at a time.</p>
+              <ul className="pairs assign">
+                {pairs.map((pair) => {
+                  const shown = openPair === pair.santaId;
+                  return (
+                    <li key={pair.santaId}>
+                      <span className="who">
+                        <span className="label">Santa</span>
+                        <b>{pair.santa}</b>
+                      </span>
+                      <span className="who">
+                        <span className="label">Child</span>
+                        {shown ? <b>{pair.child}</b> : <Mask />}
+                      </span>
+                      <span className="who">
+                        <span className="label">Gift preference</span>
+                        {shown ? <span className="plain">{pair.wish}</span> : <Mask />}
+                      </span>
+                      <button
+                        type="button"
+                        className="text-btn"
+                        onClick={() => setOpenPair(shown ? null : pair.santaId)}
+                      >
+                        {shown ? "Blur" : "Show"}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </>
+          ) : (
+            <p className="hint">The draw has not run.</p>
+          )}
+        </details>
       </section>
 
       <section className="panel">
@@ -649,6 +722,35 @@ export function AdminPanel({
         >
           Send emails
         </button>
+      </section>
+
+      <section className="panel">
+        <h2>Backup</h2>
+        <p className="hint">
+          The list is not kept across a server update. Download it as JSON, then restore that file to put the data back.
+        </p>
+        <div className="row">
+          <button className="btn" type="button" disabled={locked} onClick={() => void downloadBackup()}>
+            Download backup
+          </button>
+          <button
+            className="btn ghost"
+            type="button"
+            disabled={locked}
+            onClick={() => fileRef.current?.click()}
+          >
+            Restore backup
+          </button>
+          <input
+            ref={fileRef}
+            type="file"
+            accept="application/json,.json"
+            hidden
+            tabIndex={-1}
+            aria-hidden="true"
+            onChange={(event) => void onRestore(event)}
+          />
+        </div>
       </section>
 
       <section className="panel">

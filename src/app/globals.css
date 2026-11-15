@@ -379,6 +379,22 @@ textarea {
   vertical-align: middle;
 }
 
+.draw.under {
+  margin-top: 1rem;
+}
+
+.pairs.assign li {
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 0.8fr) minmax(0, 1.4fr) auto;
+  align-items: center;
+  justify-content: stretch;
+}
+
+.who b,
+.who .plain {
+  overflow-wrap: anywhere;
+}
+
 .draw > summary {
   cursor: pointer;
   color: var(--yellow);
@@ -416,6 +432,10 @@ textarea {
   .pairs li {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .pairs.assign li {
+    grid-template-columns: 1fr;
   }
 
   .rider-btn span {

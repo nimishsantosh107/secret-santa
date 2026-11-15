@@ -1,7 +1,7 @@
 import { cookies } from "next/headers";
 import type { NextRequest } from "next/server";
 import { ADMIN_COOKIE, authed, passwordOk } from "@/lib/auth";
-import { DEFAULT_HTML, DEFAULT_SUBJECT, paths, readDb, testDbPath, toPublic, updateDb } from "@/lib/db";
+import { DEFAULT_HTML, DEFAULT_SUBJECT, normalizeDb, paths, readDb, testDbPath, toPublic, updateDb } from "@/lib/db";
 import { sendOne, sendTest } from "@/lib/mail";
 import { readPerson } from "@/lib/person";
 import { cleanExclusions, derange } from "@/lib/shuffle";
@@ -30,6 +30,7 @@ type Body = {
   phone?: string;
   address?: string;
   preference?: string;
+  backup?: unknown;
 };
 
 type Result = { error?: string; processed?: boolean };
@@ -104,7 +105,7 @@ export async function POST(request: NextRequest) {
 
   const test = testMode(request);
   const file = await dbFile(test);
-  if (test && body.action !== "reset") await ensureTest(file);
+  if (test && body.action !== "reset" && body.action !== "import") await ensureTest(file);
 
   if (body.action === "reset") {
     if (!test) return json({ error: "Unknown action." }, 400);
@@ -126,6 +127,35 @@ export async function POST(request: NextRequest) {
     }
     try {
       await sendTest(to, subject, html);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Failed.";
+      return json({ error: message.slice(0, 300) }, 500);
+    }
+    return json({ ok: true, state: toPublic(await readDb(file)) });
+  }
+
+  if (body.action === "export") {
+    try {
+      return json({ ok: true, backup: await readDb(file) });
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Failed.";
+      return json({ error: message.slice(0, 300) }, 500);
+    }
+  }
+
+  if (body.action === "import") {
+    const next = normalizeDb(body.backup);
+    if (!next) return json({ error: "That file is not a secret-santa backup." }, 400);
+    try {
+      await updateDb((db) => {
+        db.closed = next.closed;
+        db.participants = next.participants;
+        db.exclusions = next.exclusions;
+        db.mapping = next.mapping;
+        db.status = next.status;
+        db.emailSubject = next.emailSubject;
+        db.emailHtml = next.emailHtml;
+      }, file);
     } catch (e) {
       const message = e instanceof Error ? e.message : "Failed.";
       return json({ error: message.slice(0, 300) }, 500);
@@ -156,7 +186,6 @@ export async function POST(request: NextRequest) {
         return {};
       }
       if (action === "shuffle") {
-        if (db.mapping) return { error: "Already shuffled." };
         if (db.participants.length < 2) return { error: "Need at least 2 people." };
         const map = derange(
           db.participants.map((p) => p.id),

@@ -87,31 +87,24 @@ function blank(): DB {
   };
 }
 
-export function readDbSync(file = paths.db): DB {
-  if (!fs.existsSync(file)) return blank();
-  let parsed: Partial<DB>;
-  try {
-    parsed = JSON.parse(fs.readFileSync(file, "utf8")) as Partial<DB>;
-  } catch {
-    // A half-written practice file should not block login. The host route reseeds it.
-    if (isPractice(file)) return blank();
-    throw new Error(`${path.basename(file)} is corrupt. Fix it or delete it.`);
-  }
-  if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.participants)) {
-    if (isPractice(file)) return blank();
-    throw new Error(`${path.basename(file)} is corrupt. Fix it or delete it.`);
-  }
+/** Same shape readDb writes. Null when the value is not a database. */
+export function normalizeDb(parsed: unknown): DB | null {
+  if (!parsed || typeof parsed !== "object") return null;
+  const row = parsed as Partial<DB>;
+  const people = row.participants;
+  if (!Array.isArray(people)) return null;
   const base = blank();
-  const rawStatus =
-    parsed.status && typeof parsed.status === "object" ? parsed.status : {};
+  const rawStatus = row.status && typeof row.status === "object" ? row.status : {};
   const status: DB["status"] = {};
-  for (const [id, row] of Object.entries(rawStatus)) {
-    const email = (row as { email?: unknown } | null)?.email;
+  for (const [id, item] of Object.entries(rawStatus)) {
+    const email = (item as { email?: unknown } | null)?.email;
     status[id] = { email: email === "sent" ? "sent" : "pending" };
   }
+  let mapping: DB["mapping"] = null;
+  if (row.mapping && typeof row.mapping === "object") mapping = row.mapping;
   return {
-    closed: Boolean(parsed.closed),
-    participants: parsed.participants.map((p) => ({
+    closed: Boolean(row.closed),
+    participants: people.map((p) => ({
       id: p.id,
       name: p.name,
       email: p.email,
@@ -119,14 +112,32 @@ export function readDbSync(file = paths.db): DB {
       address: p.address,
       preference: p.preference,
     })),
-    exclusions: Array.isArray(parsed.exclusions) ? parsed.exclusions : [],
-    mapping: parsed.mapping && typeof parsed.mapping === "object" ? parsed.mapping : null,
+    exclusions: Array.isArray(row.exclusions) ? row.exclusions : [],
+    mapping,
     status,
-    emailSubject: parsed.emailSubject || base.emailSubject,
-    emailHtml: (parsed.emailHtml || base.emailHtml)
+    emailSubject: row.emailSubject || base.emailSubject,
+    emailHtml: (row.emailHtml || base.emailHtml)
       .replaceAll("{{image}}", "")
       .replace(/<p[^>]*>If a poster (?:came with this letter|rode along)[\s\S]*?<\/p>\s*/gi, ""),
   };
+}
+
+export function readDbSync(file = paths.db): DB {
+  if (!fs.existsSync(file)) return blank();
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(fs.readFileSync(file, "utf8"));
+  } catch {
+    // A half-written practice file should not block login. The host route reseeds it.
+    if (isPractice(file)) return blank();
+    throw new Error(`${path.basename(file)} is corrupt. Fix it or delete it.`);
+  }
+  const db = normalizeDb(parsed);
+  if (!db) {
+    if (isPractice(file)) return blank();
+    throw new Error(`${path.basename(file)} is corrupt. Fix it or delete it.`);
+  }
+  return db;
 }
 
 /** Reads after the request arrives, so the file is not frozen at build time. */

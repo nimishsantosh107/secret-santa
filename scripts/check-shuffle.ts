@@ -1,4 +1,8 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { normalizeDb, readDbSync, updateDb } from "../src/lib/db";
 import { readPerson } from "../src/lib/person";
 import { cleanExclusions, derange } from "../src/lib/shuffle";
 import { TEST_EMAIL, applyTestSeed, testExclusions, testRoster } from "../src/lib/test-roster";
@@ -65,4 +69,44 @@ for (let i = 0; i < 20; i++) {
   for (const id of practiceIds) assert.notEqual(map[id], id);
 }
 
-console.log("shuffle ok");
+const backup = normalizeDb({
+  closed: true,
+  participants: [
+    { id: "a", name: "Ada", email: "a@b.c", phone: "1", address: "x", preference: "y" },
+  ],
+  exclusions: [{ a: "a", b: "b" }],
+  mapping: { a: "a" },
+  status: { a: { email: "sent" }, b: { email: "nope" } },
+  emailSubject: "Hi",
+  emailHtml: "<p>ok</p>",
+});
+assert.ok(backup);
+assert.equal(backup.status.a.email, "sent");
+assert.equal(backup.status.b.email, "pending");
+assert.deepEqual(normalizeDb(JSON.parse(JSON.stringify(backup))), backup);
+assert.equal(normalizeDb(null), null);
+assert.equal(normalizeDb({ participants: "nope" }), null);
+if (!backup) throw new Error("expected a backup");
+
+const saved = backup;
+const backupFile = path.join(os.tmpdir(), `ss-backup-check-${process.pid}.json`);
+updateDb((db) => {
+  db.closed = saved.closed;
+  db.participants = saved.participants;
+  db.exclusions = saved.exclusions;
+  db.mapping = saved.mapping;
+  db.status = saved.status;
+  db.emailSubject = saved.emailSubject;
+  db.emailHtml = saved.emailHtml;
+}, backupFile)
+  .then(() => {
+    assert.deepEqual(readDbSync(backupFile), saved);
+    console.log("shuffle ok");
+  })
+  .catch((err: unknown) => {
+    console.error(err);
+    process.exitCode = 1;
+  })
+  .finally(() => {
+    fs.rmSync(backupFile, { force: true });
+  });
