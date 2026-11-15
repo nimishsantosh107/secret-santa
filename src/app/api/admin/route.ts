@@ -1,7 +1,7 @@
 import { cookies } from "next/headers";
 import type { NextRequest } from "next/server";
 import { ADMIN_COOKIE, authed, passwordOk } from "@/lib/auth";
-import { DEFAULT_HTML, DEFAULT_SUBJECT, paths, readDb, readDbSync, toPublic, updateDb } from "@/lib/db";
+import { DEFAULT_HTML, DEFAULT_SUBJECT, paths, readDb, toPublic, updateDb } from "@/lib/db";
 import { sendOne, sendTest } from "@/lib/mail";
 import { readPerson } from "@/lib/person";
 import { cleanExclusions, derange } from "@/lib/shuffle";
@@ -45,7 +45,10 @@ function dbFile(test: boolean) {
 const testTemplates = { emailSubject: DEFAULT_SUBJECT, emailHtml: DEFAULT_HTML };
 
 async function ensureTest(file: string) {
-  const current = readDbSync(file);
+  // readDb waits for the request before touching the file. A sync read here
+  // aborts the response under cacheComponents, and the browser reports it as
+  // "Unexpected end of JSON input".
+  const current = await readDb(file);
   if (current.participants.length > 0 || current.mapping) return;
   await updateDb((db) => {
     if (db.participants.length > 0 || db.mapping) return;

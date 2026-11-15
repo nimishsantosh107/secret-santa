@@ -74,9 +74,12 @@ export function readDbSync(file = paths.db): DB {
   try {
     parsed = JSON.parse(fs.readFileSync(file, "utf8")) as Partial<DB>;
   } catch {
+    // A half-written practice file should not block login. The host route reseeds it.
+    if (file === paths.test) return blank();
     throw new Error(`${path.basename(file)} is corrupt. Fix it or delete it.`);
   }
   if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.participants)) {
+    if (file === paths.test) return blank();
     throw new Error(`${path.basename(file)} is corrupt. Fix it or delete it.`);
   }
   const base = blank();
