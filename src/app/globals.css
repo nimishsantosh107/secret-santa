@@ -26,7 +26,9 @@ h1,
 h2,
 .kicker,
 .field span,
-.rider b {
+.rider b,
+.rider-btn b,
+.who b {
   font-family: var(--font-display), Georgia, "Palatino Linotype", serif;
   letter-spacing: 0.01em;
 }
@@ -257,13 +259,135 @@ textarea {
   gap: 0.45rem;
 }
 
-.riders li,
+.riders li {
+  display: block;
+}
+
 .pairs li {
   display: flex;
   justify-content: space-between;
   gap: 0.75rem;
   border-bottom: 1px solid rgba(240, 193, 74, 0.25);
   padding-bottom: 0.35rem;
+}
+
+.rider-btn {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  color: inherit;
+  border: 0;
+  border-bottom: 1px solid rgba(240, 193, 74, 0.25);
+  border-radius: 0;
+  padding: 0.45rem 0.35rem;
+  cursor: pointer;
+  font: inherit;
+}
+
+.rider-btn span {
+  color: #c8bfb0;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.rider-btn:hover {
+  background: rgba(240, 193, 74, 0.08);
+}
+
+.rider-btn[aria-expanded="true"],
+.rider-btn[aria-expanded="true"]:hover {
+  background: rgba(240, 193, 74, 0.16);
+}
+
+.sheet {
+  display: grid;
+  gap: 0.85rem;
+  margin: 0.35rem 0 0.85rem;
+  padding: 0.85rem 0.75rem;
+  background: rgba(240, 193, 74, 0.06);
+  border-bottom: 1px solid rgba(240, 193, 74, 0.25);
+}
+
+.sheet dl {
+  display: grid;
+  gap: 0.8rem;
+  margin: 0;
+}
+
+.sheet dt {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-family: var(--font-display), Georgia, "Palatino Linotype", serif;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+}
+
+.sheet dd,
+.plain {
+  margin: 0.25rem 0 0;
+  white-space: pre-wrap;
+  line-height: 1.45;
+}
+
+.label {
+  font-family: var(--font-display), Georgia, "Palatino Linotype", serif;
+  font-size: 0.85rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.who {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.who .label {
+  font-size: 0.75rem;
+  color: var(--mint);
+}
+
+.text-btn {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--mint);
+  cursor: pointer;
+  font: inherit;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.text-btn:hover {
+  color: var(--yellow);
+}
+
+.mask {
+  display: inline-block;
+  width: 7.5rem;
+  height: 1.15rem;
+  margin-top: 0.2rem;
+  background: rgba(247, 243, 234, 0.22);
+  box-shadow: 0 0 10px 4px rgba(247, 243, 234, 0.28);
+  vertical-align: middle;
+}
+
+.draw > summary {
+  cursor: pointer;
+  color: var(--yellow);
+  font-family: var(--font-display), Georgia, "Palatino Linotype", serif;
+  font-size: clamp(1.6rem, 4vw, 2.2rem);
+}
+
+.draw[open] > summary {
+  margin-bottom: 0.75rem;
 }
 
 .pair-pick {
@@ -288,8 +412,13 @@ textarea {
     height: 24rem;
   }
 
-  .riders li,
+  .rider-btn,
   .pairs li {
     flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .rider-btn span {
+    text-align: left;
   }
 }

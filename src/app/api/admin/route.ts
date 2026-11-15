@@ -3,6 +3,7 @@ import type { NextRequest } from "next/server";
 import { ADMIN_COOKIE, authed, passwordOk } from "@/lib/auth";
 import { readDb, toPublic, updateDb } from "@/lib/db";
 import { sendOne, sendTest } from "@/lib/mail";
+import { readPerson } from "@/lib/person";
 import { cleanExclusions, derange } from "@/lib/shuffle";
 
 export const maxDuration = 60;
@@ -22,6 +23,12 @@ type Body = {
   emailSubject?: string;
   emailHtml?: string;
   to?: string;
+  id?: string;
+  name?: string;
+  email?: string;
+  phone?: string;
+  address?: string;
+  preference?: string;
 };
 
 type Result = { error?: string; processed?: boolean };
@@ -84,7 +91,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const known = new Set(["close", "exclusions", "shuffle", "email", "templates"]);
+    const known = new Set(["close", "exclusions", "shuffle", "email", "templates", "participant"]);
     if (!body.action || !known.has(body.action)) {
       return json({ error: "Unknown action." }, 400);
     }
@@ -128,6 +135,20 @@ export async function POST(request: NextRequest) {
       if (action === "email") {
         if (!db.mapping) return { error: "Shuffle first." };
         return { processed: await sendOne(db) };
+      }
+      if (action === "participant") {
+        const fields = readPerson(body);
+        if ("error" in fields) return fields;
+        const person = db.participants.find((p) => p.id === String(body.id ?? ""));
+        if (!person) return { error: "That person is not on the list." };
+        const taken = db.participants.some((p) => p.email === fields.email && p.id !== person.id);
+        if (taken) return { error: "That email is already on the list." };
+        person.name = fields.name;
+        person.email = fields.email;
+        person.phone = fields.phone;
+        person.address = fields.address;
+        person.preference = fields.preference;
+        return {};
       }
       if (action !== "templates") return { error: "Unknown action." };
       const subject = String(body.emailSubject ?? "").slice(0, 200);

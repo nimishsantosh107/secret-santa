@@ -26,9 +26,29 @@ function draftFrom(state: PublicState): Draft {
 function counts(state: PublicState) {
   let emailed = 0;
   for (const rider of state.participants) {
-    if (rider.email === "sent") emailed += 1;
+    if (rider.mail === "sent") emailed += 1;
   }
   return { total: state.participants.length, emailed };
+}
+
+type PersonForm = {
+  name: string;
+  email: string;
+  phone: string;
+  address: string;
+  preference: string;
+};
+
+const emptyForm: PersonForm = {
+  name: "",
+  email: "",
+  phone: "",
+  address: "",
+  preference: "",
+};
+
+function Mask() {
+  return <span className="mask" aria-hidden="true" />;
 }
 
 export function AdminPanel() {
@@ -42,6 +62,12 @@ export function AdminPanel() {
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState("");
   const [bad, setBad] = useState(false);
+  const [openId, setOpenId] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [showPref, setShowPref] = useState(false);
+  const [showChild, setShowChild] = useState(false);
+  const [openPair, setOpenPair] = useState<string | null>(null);
+  const [form, setForm] = useState<PersonForm>(emptyForm);
 
   const refresh = useCallback(async () => {
     const res = await fetch("/api/admin", { cache: "no-store" });
@@ -112,6 +138,23 @@ export function AdminPanel() {
     });
   }
 
+  function pick(id: string) {
+    setOpenId((current) => (current === id ? null : id));
+    setEditing(false);
+    setShowPref(false);
+    setShowChild(false);
+  }
+
+  async function savePerson(event: FormEvent) {
+    event.preventDefault();
+    if (!openId) return;
+    await act("person", async () => {
+      await post({ action: "participant", id: openId, ...form });
+      setEditing(false);
+      setMsg("Saved.");
+    });
+  }
+
   async function sendEmails() {
     await act("email", async () => {
       let attempted = false;
@@ -164,6 +207,18 @@ export function AdminPanel() {
   const locked = busy !== null;
   const riders = [...state.participants].sort((a, b) => a.name.localeCompare(b.name));
   const nameOf = (id: string) => riders.find((rider) => rider.id === id)?.name ?? "unknown";
+  const open = riders.find((rider) => rider.id === openId) ?? null;
+  const childId = open && state.mapping ? (state.mapping[open.id] ?? null) : null;
+  const childName = childId ? nameOf(childId) : null;
+  const pairs = state.mapping
+    ? Object.entries(state.mapping)
+        .map(([santaId, drawnId]) => ({
+          santaId,
+          santa: nameOf(santaId),
+          child: nameOf(drawnId),
+        }))
+        .sort((a, b) => a.santa.localeCompare(b.santa))
+    : [];
 
   async function saveDraft() {
     await act("templates", async () => {
@@ -180,7 +235,7 @@ export function AdminPanel() {
       </p>
       <h1>Host</h1>
       <p className="hint">
-        Pairs stay on the server. This screen never shows the map or a gift wish.
+        Open a name for their form. The wish and their child stay blurred until you show them.
       </p>
       <p className={bad ? "msg bad" : "msg"} role="status">
         {msg}
@@ -197,10 +252,176 @@ export function AdminPanel() {
         <ul className="riders">
           {riders.map((rider) => (
             <li key={rider.id}>
-              <b>{rider.name}</b>
-              <span>
-                {state.mapped ? `mail ${rider.email}` : "signed up"}
-              </span>
+              <button
+                type="button"
+                className="rider-btn"
+                aria-expanded={openId === rider.id}
+                onClick={() => pick(rider.id)}
+              >
+                <b>{rider.name}</b>
+                <span>
+                  {rider.email}
+                  {state.mapped ? ` · mail ${rider.mail}` : " · signed up"}
+                </span>
+              </button>
+              {open && open.id === rider.id ? (
+                <div className="sheet">
+            {editing ? (
+              <form onSubmit={(event) => void savePerson(event)} autoComplete="off">
+                <label className="field">
+                  <span>Name</span>
+                  <input
+                    value={form.name}
+                    required
+                    maxLength={80}
+                    disabled={locked}
+                    onChange={(event) => setForm({ ...form, name: event.target.value })}
+                  />
+                </label>
+                <label className="field">
+                  <span>Email</span>
+                  <input
+                    type="email"
+                    value={form.email}
+                    required
+                    maxLength={120}
+                    disabled={locked}
+                    onChange={(event) => setForm({ ...form, email: event.target.value })}
+                  />
+                </label>
+                <label className="field">
+                  <span>Phone for delivery</span>
+                  <input
+                    type="tel"
+                    value={form.phone}
+                    required
+                    maxLength={40}
+                    disabled={locked}
+                    onChange={(event) => setForm({ ...form, phone: event.target.value })}
+                  />
+                </label>
+                <label className="field">
+                  <span>Address</span>
+                  <textarea
+                    value={form.address}
+                    required
+                    maxLength={500}
+                    disabled={locked}
+                    onChange={(event) => setForm({ ...form, address: event.target.value })}
+                  />
+                </label>
+                <div className="field">
+                  <div className="row">
+                    <span>Gift preference</span>
+                    <button
+                      type="button"
+                      className="text-btn"
+                      onClick={() => setShowPref((value) => !value)}
+                    >
+                      {showPref ? "Blur" : "Show"}
+                    </button>
+                  </div>
+                  {showPref ? (
+                    <textarea
+                      value={form.preference}
+                      required
+                      maxLength={1000}
+                      disabled={locked}
+                      onChange={(event) => setForm({ ...form, preference: event.target.value })}
+                    />
+                  ) : (
+                    <Mask />
+                  )}
+                </div>
+                <div className="row">
+                  <button className="btn" type="submit" disabled={locked}>
+                    Save
+                  </button>
+                  <button
+                    className="btn ghost"
+                    type="button"
+                    disabled={locked}
+                    onClick={() => setEditing(false)}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <dl>
+                <div>
+                  <dt>Name</dt>
+                  <dd>{open.name}</dd>
+                </div>
+                <div>
+                  <dt>Email</dt>
+                  <dd>{open.email}</dd>
+                </div>
+                <div>
+                  <dt>Phone for delivery</dt>
+                  <dd>{open.phone}</dd>
+                </div>
+                <div>
+                  <dt>Address</dt>
+                  <dd>{open.address}</dd>
+                </div>
+                <div>
+                  <dt>
+                    Gift preference
+                    <button
+                      type="button"
+                      className="text-btn"
+                      onClick={() => setShowPref((value) => !value)}
+                    >
+                      {showPref ? "Blur" : "Show"}
+                    </button>
+                  </dt>
+                  <dd>{showPref ? open.preference : <Mask />}</dd>
+                </div>
+              </dl>
+            )}
+            <div>
+              <div className="row">
+                <span className="label">Child</span>
+                {childName ? (
+                  <button
+                    type="button"
+                    className="text-btn"
+                    onClick={() => setShowChild((value) => !value)}
+                  >
+                    {showChild ? "Blur" : "Show"}
+                  </button>
+                ) : null}
+              </div>
+              {childName && !showChild ? (
+                <Mask />
+              ) : (
+                <p className="plain">{childName ?? "Not assigned yet."}</p>
+              )}
+            </div>
+            {editing ? null : (
+              <div className="row">
+                <button
+                  className="btn"
+                  type="button"
+                  disabled={locked}
+                  onClick={() => {
+                    setForm({
+                      name: open.name,
+                      email: open.email,
+                      phone: open.phone,
+                      address: open.address,
+                      preference: open.preference,
+                    });
+                    setEditing(true);
+                  }}
+                >
+                  Edit
+                </button>
+              </div>
+            )}
+                </div>
+              ) : null}
             </li>
           ))}
         </ul>
@@ -228,6 +449,11 @@ export function AdminPanel() {
                 await post({ action: "logout" });
                 setDraft(null);
                 setState(null);
+                setOpenId(null);
+                setEditing(false);
+                setShowPref(false);
+                setShowChild(false);
+                setOpenPair(null);
                 setPhase("login");
               })
             }
@@ -308,15 +534,55 @@ export function AdminPanel() {
         </ul>
       </section>
 
+      <details
+        className="panel draw"
+        onToggle={(event) => {
+          if (!event.currentTarget.open) setOpenPair(null);
+        }}
+      >
+        <summary>Assignments</summary>
+        {state.mapped ? (
+          <>
+            <p className="hint">Show one row at a time.</p>
+            <ul className="pairs">
+              {pairs.map((pair) => {
+                const shown = openPair === pair.santaId;
+                return (
+                  <li key={pair.santaId}>
+                    <span className="who">
+                      <span className="label">Santa</span>
+                      {shown ? <b>{pair.santa}</b> : <Mask />}
+                    </span>
+                    <span className="who">
+                      <span className="label">Child</span>
+                      {shown ? <b>{pair.child}</b> : <Mask />}
+                    </span>
+                    <button
+                      type="button"
+                      className="text-btn"
+                      onClick={() => setOpenPair(shown ? null : pair.santaId)}
+                    >
+                      {shown ? "Blur" : "Show"}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </>
+        ) : (
+          <p className="hint">The draw has not run.</p>
+        )}
+      </details>
+
       <section className="panel">
         <h2>Shuffle</h2>
-        <p className="hint">This locks submissions. You will not see who got whom.</p>
+        <p className="hint">This locks submissions. Assignments stay blurred until you show them.</p>
         <button
           className="btn"
           type="button"
           disabled={locked || state.mapped || tally.total < 2}
           onClick={() => {
-            if (!window.confirm("Run the shuffle? Submissions lock. You will not see the pairs.")) {
+            if (!window.confirm("Run the shuffle? Submissions lock. Assignments stay blurred until you show them.")) {
               return;
             }
             void act("shuffle", () => post({ action: "shuffle" }));

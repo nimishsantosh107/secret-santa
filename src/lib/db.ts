@@ -21,7 +21,7 @@ export type DB = {
   closed: boolean;
   participants: Participant[];
   exclusions: Pair[];
-  /** santaId -> childId. Never returned by an API. */
+  /** santaId -> childId. Returned only by the host API. */
   mapping: Record<string, string> | null;
   status: Record<string, PairStatus>;
   emailSubject: string;
@@ -151,9 +151,14 @@ export function toPublic(db: DB): PublicState {
     participants: db.participants.map((p) => ({
       id: p.id,
       name: p.name,
-      email: mapped ? (db.status[p.id]?.email ?? "pending") : null,
+      email: p.email,
+      phone: p.phone,
+      address: p.address,
+      preference: p.preference,
+      mail: mapped ? (db.status[p.id]?.email ?? "pending") : null,
     })),
     exclusions: db.exclusions,
+    mapping: db.mapping,
     emailSubject: db.emailSubject,
     emailHtml: db.emailHtml,
   };
