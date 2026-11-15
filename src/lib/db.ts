@@ -1,6 +1,6 @@
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
+import { getCache } from "@vercel/functions";
 import { connection } from "next/server";
 import type { EmailFlag, PublicState } from "./types";
 import type { Pair } from "./shuffle";
@@ -29,28 +29,29 @@ export type DB = {
   emailHtml: string;
 };
 
-// ponytail: Vercel runs from read-only /var/task, so the list lives in /tmp.
-// Ceiling: one warm server; a cold start drops the file. Upgrade: a shared store.
-function dataDir() {
-  // Bracket access so the build does not bake in a missing VERCEL value.
-  const onVercel = process.env["VERCEL"];
-  return onVercel
-    ? path.join(os.tmpdir(), "secret-santa")
-    : path.join(process.cwd(), "data");
-}
+const root = path.join(process.cwd(), "data");
 
 export const paths = {
-  db: path.join(dataDir(), "db.json"),
+  db: path.join(root, "db.json"),
 };
 
-let practicePath: string | null = null;
-
-/** Practice list file. Same disk as the real list. */
+/** Practice list file. On Vercel only the file name matters; see load/save. */
 export async function testDbPath() {
-  if (practicePath) return practicePath;
-  await connection();
-  practicePath = path.join(dataDir(), "test.json");
-  return practicePath;
+  return path.join(root, "test.json");
+}
+
+// ponytail: on Vercel each serverless instance has its own /tmp and the app dir is
+// read-only, so the list lives in the Runtime Cache, which every instance in the
+// region shares. Ceiling: it is a cache. It can be evicted, and it is per region.
+// Upgrade: a real store (Vercel Blob or a database). Download backups meanwhile.
+const TTL = 60 * 60 * 24 * 365;
+
+function onVercel() {
+  return Boolean(process.env["VERCEL"]);
+}
+
+function cacheKey(file: string) {
+  return `secret-santa:${path.basename(file)}`;
 }
 
 function isPractice(file: string) {
@@ -126,11 +127,11 @@ export function normalizeDb(parsed: unknown): DB | null {
   };
 }
 
-export function readDbSync(file = paths.db): DB {
-  if (!fs.existsSync(file)) return blank();
+function parseDb(text: string | null, file: string): DB {
+  if (text === null) return blank();
   let parsed: unknown;
   try {
-    parsed = JSON.parse(fs.readFileSync(file, "utf8"));
+    parsed = JSON.parse(text);
   } catch {
     // A half-written practice file should not block login. The host route reseeds it.
     if (isPractice(file)) return blank();
@@ -144,13 +145,28 @@ export function readDbSync(file = paths.db): DB {
   return db;
 }
 
+export function readDbSync(file = paths.db): DB {
+  return parseDb(fs.existsSync(file) ? fs.readFileSync(file, "utf8") : null, file);
+}
+
+async function load(file: string): Promise<DB> {
+  if (!onVercel()) return readDbSync(file);
+  const text = await getCache().get(cacheKey(file));
+  return parseDb(typeof text === "string" ? text : null, file);
+}
+
+async function save(db: DB, file: string) {
+  if (!onVercel()) return writeDb(db, file);
+  await getCache().set(cacheKey(file), JSON.stringify(db), { ttl: TTL });
+}
+
 /** Reads after the request arrives, so the file is not frozen at build time. */
 export async function readDb(file = paths.db): Promise<DB> {
   await connection();
-  return readDbSync(file);
+  return load(file);
 }
 
-function writeDb(db: DB, file = paths.db) {
+function writeDb(db: DB, file: string) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const tmp = `${file}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify(db, null, 2));
@@ -164,15 +180,16 @@ function writeDb(db: DB, file = paths.db) {
 }
 
 // ponytail: one in-process queue per file. Two overlapping writes cannot
-// clobber that file in this process. Ceiling: one Node process. Upgrade: SQLite.
+// clobber that file in this process. Ceiling: one Node process, so two Vercel
+// instances writing at the same instant can drop one entry. Upgrade: a real store.
 const queues = new Map<string, Promise<unknown>>();
 
 export function updateDb<T>(fn: (db: DB) => Promise<T> | T, file = paths.db): Promise<T> {
   const prev = queues.get(file) ?? Promise.resolve();
   const job = prev.then(async () => {
-    const db = readDbSync(file);
+    const db = await load(file);
     const result = await fn(db);
-    writeDb(db, file);
+    await save(db, file);
     return result;
   });
   queues.set(
