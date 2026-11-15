@@ -29,29 +29,33 @@ export type DB = {
   emailHtml: string;
 };
 
-const root = path.join(process.cwd(), "data");
+// ponytail: Vercel runs from read-only /var/task, so the list lives in /tmp.
+// Ceiling: one warm server; a cold start drops the file. Upgrade: a shared store.
+function dataDir() {
+  // Bracket access so the build does not bake in a missing VERCEL value.
+  const onVercel = process.env["VERCEL"];
+  return onVercel
+    ? path.join(os.tmpdir(), "secret-santa")
+    : path.join(process.cwd(), "data");
+}
 
 export const paths = {
-  db: path.join(root, "db.json"),
+  db: path.join(dataDir(), "db.json"),
 };
 
 let practicePath: string | null = null;
 
-/** Practice list file. On Vercel the app directory is read-only, so this uses /tmp. */
+/** Practice list file. Same disk as the real list. */
 export async function testDbPath() {
   if (practicePath) return practicePath;
   await connection();
-  // ponytail: /tmp is per server instance and dies on a cold start.
-  // Ceiling: one warm server. Upgrade: a shared store.
-  practicePath = process.env.VERCEL
-    ? path.join(os.tmpdir(), "secret-santa-test.json")
-    : path.join(root, "test.json");
+  practicePath = path.join(dataDir(), "test.json");
   return practicePath;
 }
 
 function isPractice(file: string) {
   const base = path.basename(file);
-  return base === "test.json" || base === "secret-santa-test.json";
+  return base === "test.json";
 }
 
 export const DEFAULT_SUBJECT = "{{santa_name}}, you are someone's Secret Santa";
