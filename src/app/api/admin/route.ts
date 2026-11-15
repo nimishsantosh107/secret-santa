@@ -1,7 +1,7 @@
 import { cookies } from "next/headers";
 import type { NextRequest } from "next/server";
 import { ADMIN_COOKIE, authed, passwordOk } from "@/lib/auth";
-import { DEFAULT_HTML, DEFAULT_SUBJECT, paths, readDb, toPublic, updateDb } from "@/lib/db";
+import { DEFAULT_HTML, DEFAULT_SUBJECT, paths, readDb, testDbPath, toPublic, updateDb } from "@/lib/db";
 import { sendOne, sendTest } from "@/lib/mail";
 import { readPerson } from "@/lib/person";
 import { cleanExclusions, derange } from "@/lib/shuffle";
@@ -38,8 +38,8 @@ function testMode(request: NextRequest) {
   return request.nextUrl.searchParams.get("test") === "1";
 }
 
-function dbFile(test: boolean) {
-  return test ? paths.test : paths.db;
+async function dbFile(test: boolean) {
+  return test ? testDbPath() : paths.db;
 }
 
 const testTemplates = { emailSubject: DEFAULT_SUBJECT, emailHtml: DEFAULT_HTML };
@@ -60,10 +60,15 @@ export async function GET(request: NextRequest) {
   if (!authed(request.cookies.get(ADMIN_COOKIE)?.value)) {
     return json({ error: "Nope." }, 401);
   }
-  const test = testMode(request);
-  const file = dbFile(test);
-  if (test) await ensureTest(file);
-  return json({ state: toPublic(await readDb(file)) });
+  try {
+    const test = testMode(request);
+    const file = await dbFile(test);
+    if (test) await ensureTest(file);
+    return json({ state: toPublic(await readDb(file)) });
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "Failed.";
+    return json({ error: message.slice(0, 300) }, 500);
+  }
 }
 
 export async function POST(request: NextRequest) {
@@ -98,7 +103,7 @@ export async function POST(request: NextRequest) {
   }
 
   const test = testMode(request);
-  const file = dbFile(test);
+  const file = await dbFile(test);
   if (test && body.action !== "reset") await ensureTest(file);
 
   if (body.action === "reset") {

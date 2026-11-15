@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { connection } from "next/server";
 import type { EmailFlag, PublicState } from "./types";
@@ -32,8 +33,26 @@ const root = path.join(process.cwd(), "data");
 
 export const paths = {
   db: path.join(root, "db.json"),
-  test: path.join(root, "test.json"),
 };
+
+let practicePath: string | null = null;
+
+/** Practice list file. On Vercel the app directory is read-only, so this uses /tmp. */
+export async function testDbPath() {
+  if (practicePath) return practicePath;
+  await connection();
+  // ponytail: /tmp is per server instance and dies on a cold start.
+  // Ceiling: one warm server. Upgrade: a shared store.
+  practicePath = process.env.VERCEL
+    ? path.join(os.tmpdir(), "secret-santa-test.json")
+    : path.join(root, "test.json");
+  return practicePath;
+}
+
+function isPractice(file: string) {
+  const base = path.basename(file);
+  return base === "test.json" || base === "secret-santa-test.json";
+}
 
 export const DEFAULT_SUBJECT = "{{santa_name}}, you are someone's Secret Santa";
 
@@ -75,11 +94,11 @@ export function readDbSync(file = paths.db): DB {
     parsed = JSON.parse(fs.readFileSync(file, "utf8")) as Partial<DB>;
   } catch {
     // A half-written practice file should not block login. The host route reseeds it.
-    if (file === paths.test) return blank();
+    if (isPractice(file)) return blank();
     throw new Error(`${path.basename(file)} is corrupt. Fix it or delete it.`);
   }
   if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.participants)) {
-    if (file === paths.test) return blank();
+    if (isPractice(file)) return blank();
     throw new Error(`${path.basename(file)} is corrupt. Fix it or delete it.`);
   }
   const base = blank();
